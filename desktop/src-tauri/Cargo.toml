@@ -1,0 +1,16 @@
+[package]
+name = "ai-ppt-studio"
+version = "0.1.0"
+description = "Open-source AI presentation desktop app"
+authors = ["AI PPT Studio contributors"]
+edition = "2021"
+
+[lib]
+name = "ai_ppt_studio_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }

@@ -1,0 +1,19 @@
+{
+  "name": "ai-ppt-studio",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "desktop",
+    "ppt-engine"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w desktop",
+    "build": "npm run build -w desktop",
+    "desktop": "npm run tauri -w desktop",
+    "typecheck": "npm run typecheck -w desktop",
+    "test": "npm run test -w desktop"
+  },
+  "engines": {
+    "node": ">=22 <25"
+  }
+}

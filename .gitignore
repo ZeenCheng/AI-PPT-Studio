@@ -1,0 +1,28 @@
+# Node.js
+node_modules/
+dist/
+.vite/
+
+# Rust / Tauri build files
+target/
+**/target/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Environment files
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
