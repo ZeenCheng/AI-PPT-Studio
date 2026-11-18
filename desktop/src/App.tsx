@@ -1,11 +1,15 @@
 
-import { useState } from 'react';
+import { useRef, useState, type PointerEvent } from 'react';
+import SlideRenderer from './components/SlideRenderer';
 import { create } from 'zustand';
 import { copy, type Language } from './i18n';
 import {
   createPresentation,
+  SLIDE_WIDTH,
+  SLIDE_HEIGHT,
   type Presentation,
   type Slide,
+  type SlideElement,
 } from './models/presentation';
 import {
   saveProject,
@@ -71,6 +75,23 @@ export default function App() {
 
   const [saveError, setSaveError] = useState('');
 
+
+  // Currently selected slide element
+  const [selectedElementId, setSelectedElementId] =
+    useState<string | null>(null);
+
+  // Remember the starting position during dragging
+  const dragRef = useRef<{
+    elementId: string;
+    startPointerX: number;
+    startPointerY: number;
+    startX: number;
+    startY: number;
+    slideWidth: number;
+    slideHeight: number;
+  } | null>(null);
+
+
   const t = copy[language];
   const isZh = language === 'zh';
 
@@ -81,6 +102,9 @@ export default function App() {
 
   const currentSlide = project.slides[selectedIndex];
   const currentText = getSlideText(currentSlide);
+  const selectedElement = currentSlide.elements.find(
+    (element) => element.id === selectedElementId
+  ) ?? null;
 
   // Create a new project
   function handleNewProject() {
@@ -194,6 +218,162 @@ export default function App() {
     setSaveStatus('unsaved');
   }
 
+
+  function handlePointerDown(
+    event: PointerEvent<HTMLDivElement>,
+    element: SlideElement
+  ) {
+    if (event.button !== 0) return;
+
+    const slideNode = event.currentTarget.closest('.slide-renderer');
+
+    if (!(slideNode instanceof HTMLElement)) return;
+
+    const rect = slideNode.getBoundingClientRect();
+
+    if (rect.width <= 0 || rect.height <= 0) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    setSelectedElementId(element.id);
+
+    dragRef.current = {
+      elementId: element.id,
+      startPointerX: event.clientX,
+      startPointerY: event.clientY,
+      startX: element.x,
+      startY: element.y,
+      slideWidth: rect.width,
+      slideHeight: rect.height,
+    };
+
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handlePointerMove(
+    event: PointerEvent<HTMLDivElement>
+  ) {
+    const drag = dragRef.current;
+
+    if (!drag) return;
+
+    const deltaX =
+      (event.clientX - drag.startPointerX) *
+      (SLIDE_WIDTH / drag.slideWidth);
+
+    const deltaY =
+      (event.clientY - drag.startPointerY) *
+      (SLIDE_HEIGHT / drag.slideHeight);
+
+    setProject((previous) => ({
+      ...previous,
+      slides: previous.slides.map((slide, index) => {
+        if (index !== selectedIndex) return slide;
+
+        return {
+          ...slide,
+          elements: slide.elements.map((element) => {
+            if (element.id !== drag.elementId) {
+              return element;
+            }
+
+            return {
+              ...element,
+              x: Math.max(
+                0,
+                Math.min(
+                  SLIDE_WIDTH - element.w,
+                  drag.startX + deltaX
+                )
+              ),
+              y: Math.max(
+                0,
+                Math.min(
+                  SLIDE_HEIGHT - element.h,
+                  drag.startY + deltaY
+                )
+              ),
+            };
+          }),
+        };
+      }),
+    }));
+
+    setSaveStatus('unsaved');
+  }
+
+  function handlePointerUp(
+    event: PointerEvent<HTMLDivElement>
+  ) {
+    dragRef.current = null;
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+
+  function updateElementProperty(
+    property: 'x' | 'y' | 'w' | 'h',
+    value: number
+  ) {
+    if (!selectedElementId || !Number.isFinite(value)) {
+      return;
+    }
+
+    setProject((previous) => ({
+      ...previous,
+      slides: previous.slides.map((slide, slideIndex) => {
+        if (slideIndex !== selectedIndex) {
+          return slide;
+        }
+
+        return {
+          ...slide,
+          elements: slide.elements.map((element) => {
+            if (element.id !== selectedElementId) {
+              return element;
+            }
+
+            const updated = {
+              ...element,
+              [property]: value,
+            };
+
+            // Keep dimensions positive
+            updated.w = Math.max(
+              0.2,
+              Math.min(updated.w, SLIDE_WIDTH)
+            );
+
+            updated.h = Math.max(
+              0.2,
+              Math.min(updated.h, SLIDE_HEIGHT)
+            );
+
+            // Keep the entire element inside the slide
+            updated.x = Math.max(
+              0,
+              Math.min(updated.x, SLIDE_WIDTH - updated.w)
+            );
+
+            updated.y = Math.max(
+              0,
+              Math.min(updated.y, SLIDE_HEIGHT - updated.h)
+            );
+
+            return updated;
+          }),
+        };
+      }),
+    }));
+
+    setSaveStatus('unsaved');
+  }
+
+
+
   const fieldStyle = {
     width: '100%',
     padding: '10px',
@@ -257,7 +437,6 @@ export default function App() {
           </div>
 
           {project.slides.map((slide, index) => {
-            const text = getSlideText(slide);
 
             return (
               <button
@@ -273,8 +452,7 @@ export default function App() {
                 </span>
 
                 <span className="thumb-preview">
-                  <b>{text.title}</b>
-                  <small>{text.body}</small>
+                  <SlideRenderer slide={slide} />
                 </span>
 
                 <span className="thumb-label">
@@ -311,26 +489,27 @@ export default function App() {
             </span>
           </div>
 
-          <div className="canvas-wrap">
-            <div
-              className="slide"
-              role="img"
-              aria-label={currentText.title}
-            >
-              <div className="slide-tag">
-                AI PPT STUDIO
-              </div>
+          
+         <div className="canvas-wrap">
+           <div
+             className="slide"
+             style={{
+               padding: 0,
+               overflow: 'hidden',
+             }}
+           >
+             <SlideRenderer
+               slide={currentSlide}
+               interactive
+               selectedElementId={selectedElementId}
+               onSelectElement={setSelectedElementId}
+               onPointerDownElement={handlePointerDown}
+               onPointerMoveElement={handlePointerMove}
+               onPointerUpElement={handlePointerUp}
+             />
+           </div>
+         </div>
 
-              <div className="slide-accent" />
-
-              <h1>{currentText.title}</h1>
-              <p>{currentText.body}</p>
-
-              <div className="slide-footer">
-                OPEN SOURCE / 2026
-              </div>
-            </div>
-          </div>
 
           <div className="status">
             {saveError ||
@@ -396,6 +575,87 @@ export default function App() {
               }
             />
           </div>
+
+
+          {/* Element Position and Size */}
+          {selectedElement && (
+            <div
+              style={{
+                marginTop: '24px',
+                paddingTop: '18px',
+                borderTop: '1px solid #39455e',
+              }}
+            >
+              <div
+                style={{
+                  fontWeight: 600,
+                  marginBottom: '14px',
+                }}
+              >
+                {isZh ? '位置与尺寸' : 'Position & Size'}
+              </div>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: '12px',
+                }}
+              >
+                {([
+                  ['x', isZh ? 'X 位置 (英寸)' : 'X (in)'],
+                  ['y', isZh ? 'Y 位置 (英寸)' : 'Y (in)'],
+                  ['w', isZh ? '宽度 (英寸)' : 'Width (in)'],
+                  ['h', isZh ? '高度 (英寸)' : 'Height (in)'],
+                ] as const).map(([property, label]) => (
+                  <label
+                    key={property}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '6px',
+                      fontSize: '12px',
+                    }}
+                  >
+                    {label}
+
+                    <input
+                      type="number"
+                      step="0.1"
+                      min={property === 'w' || property === 'h' ? 0.2 : 0}
+                      value={Number(selectedElement[property].toFixed(2))}
+                      onChange={(event) => {
+                        if (event.target.value === '') return;
+
+                        updateElementProperty(
+                          property,
+                          Number(event.target.value)
+                        );
+                      }}
+                      style={{
+                        ...fieldStyle,
+                        padding: '8px',
+                      }}
+                    />
+                  </label>
+                ))}
+              </div>
+
+              <p
+                style={{
+                  fontSize: '12px',
+                  color: '#8fa4c8',
+                  lineHeight: 1.5,
+                  marginTop: '12px',
+                }}
+              >
+                {isZh
+                  ? '选择画布中的文字框，可在这里精确调整位置和大小。'
+                  : 'Select an element to edit its position and size.'}
+              </p>
+            </div>
+          )}
+
 
           <div
             className="assistant-card"
